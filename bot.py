@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import http.server
@@ -7,7 +8,6 @@ import socketserver
 import ssl
 import threading
 import time
-from datetime import datetime, timedelta, timezone
 import requests
 import websocket
 
@@ -21,7 +21,7 @@ DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 PRODUCT_ID = 27  # ADAUSDT
 TRADE_VALUE_USD = 5.0
 MIN_USDT_TRIGGER = 7000.0  # $7,000+ Whale Order
-SL_POINTS = 0.00100  # 10 Points SL
+SL_POINTS = 0.00010  # Exact 10 Points SL (0.35000 -> 0.34990)
 SYMBOL = "adausdt"
 WS_URL = f"wss://stream.binance.com:9443/ws/{SYMBOL}@aggTrade"
 
@@ -80,7 +80,7 @@ def execute_algo_trade(side, exact_price):
   }).json()
   print(f"📌 LIMIT ENTRY RESULT: {res_entry}")
 
-  # 10-Point SL Order
+  # Exact 10-Point SL Order
   res_sl = send_delta_request("/v2/orders", {
       "product_id": PRODUCT_ID,
       "size": contract_size,
@@ -159,4 +159,4 @@ Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
   print(f"Server live on port {PORT}")
   httpd.serve_forever()
-  
+    
