@@ -11,7 +11,7 @@ import time
 import requests
 import websocket
 
-# --- CONFIG & DELTA DEMO CREDENTIALS ---
+# --- CONFIG & CREDENTIALS ---
 DELTA_API_KEY = "nCXz95sPzB7UrjgOBMnFk62JZmbOOJ"
 DELTA_API_SECRET = (
     "ht1GmKWtGJqrqvtynBbbcWfsF0xC7R0wsi0xbz8bJJH4eqDOqauuQEbLCmyD"
@@ -19,20 +19,25 @@ DELTA_API_SECRET = (
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
 PRODUCT_ID = 27  # ADAUSDT
-TRADE_VALUE_USD = 5.0
-MIN_USDT_TRIGGER = 7000.0  # $7,000+ Whale Order
-SL_POINTS = 0.00010  # Exact 10 Points SL (0.35000 -> 0.34990)
+TRADE_VALUE_USD = 5.0  # $5 Capital Trade
+SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
 SYMBOL = "adausdt"
 WS_URL = f"wss://stream.binance.com:9443/ws/{SYMBOL}@aggTrade"
 
+# Timezone (05:30:00 AM to 23:30:00 PM IST)
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
-START_TIME_IST = datetime(2026, 8, 23, 5, 30, 0, tzinfo=tz_ist)
-START_TS_MS = int(START_TIME_IST.timestamp() * 1000)
 
-price_data = {}
-lock = threading.Lock()
+price_book = {}
 TRADE_EXECUTED_TODAY = False
+lock = threading.Lock()
+
+
+def get_window_timestamps():
+  now = datetime.now(tz=tz_ist)
+  start_dt = datetime(now.year, now.month, now.day, 5, 30, 0, tzinfo=tz_ist)
+  end_dt = datetime(now.year, now.month, now.day, 23, 30, 0, tzinfo=tz_ist)
+  return int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
 
 
 def send_delta_request(endpoint, payload):
@@ -55,22 +60,33 @@ def send_delta_request(endpoint, payload):
   )
 
 
-def execute_algo_trade(side, exact_price):
+def execute_algo_trade(side, exact_price, trigger_ts_ms):
   global TRADE_EXECUTED_TODAY
   contract_size = max(1, int(TRADE_VALUE_USD / exact_price))
-  sl_price = (
-      round(exact_price - SL_POINTS, 5)
-      if side == "buy"
-      else round(exact_price + SL_POINTS, 5)
-  )
-  sl_side = "sell" if side == "buy" else "buy"
 
+  exec_time_str = datetime.fromtimestamp(
+      trigger_ts_ms / 1000, tz=tz_ist
+  ).strftime("%H:%M:%S.%f")[:-3]
+
+  if side == "buy":
+    sl_price = round(exact_price - SL_POINTS, 5)
+    sl_side = "sell"
+  else:
+    sl_price = round(exact_price + SL_POINTS, 5)
+    sl_side = "buy"
+
+  print("\n" + "=" * 65)
+  print(f"🎯 [EXACT TIME ENTRY TRIGGERED: {exec_time_str} IST]")
   print(
-      f"\n🎯 [TRIGGERED] {side.upper()} @ {exact_price:.5f} USDT | SL:"
-      f" {sl_price:.5f}"
+      f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL:"
+      f" {sl_price:.5f} USDT"
   )
+  print(
+      f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} ADA Contracts"
+  )
+  print("=" * 65)
 
-  # Entry Order
+  # Entry Order Placement
   res_entry = send_delta_request("/v2/orders", {
       "product_id": PRODUCT_ID,
       "size": contract_size,
@@ -78,9 +94,9 @@ def execute_algo_trade(side, exact_price):
       "order_type": "limit_order",
       "limit_price": f"{exact_price:.5f}",
   }).json()
-  print(f"📌 LIMIT ENTRY RESULT: {res_entry}")
+  print(f"📌 ENTRY ORDER RESPONSE: {res_entry}")
 
-  # Exact 10-Point SL Order
+  # 10-Point Stop Loss Order Placement
   res_sl = send_delta_request("/v2/orders", {
       "product_id": PRODUCT_ID,
       "size": contract_size,
@@ -89,71 +105,88 @@ def execute_algo_trade(side, exact_price):
       "stop_order_type": "stop_loss_order",
       "stop_price": f"{sl_price:.5f}",
   }).json()
-  print(f"🛡️ 10-POINT SL RESULT: {res_sl}")
-  print("🔒 LOCKED: 1 Trade Executed.")
+  print(f"🛡️ 10-POINT STOP LOSS RESPONSE: {res_sl}")
+  print("🔒 DAILY LOCK: Today's single trade quota completed successfully.")
 
 
 def on_message(ws, message):
   global TRADE_EXECUTED_TODAY
   msg = json.loads(message)
-  price, qty, t_ms, is_maker = (
-      float(msg["p"]),
-      float(msg["q"]),
-      int(msg["T"]),
-      bool(msg["m"]),
-  )
-  usdt_val = price * qty
-  p_str = f"{price:.5f}"
 
-  if t_ms < START_TS_MS or TRADE_EXECUTED_TODAY:
+  p = float(msg["p"])
+  q = float(msg["q"])
+  t = int(msg["T"])
+  is_maker = bool(msg["m"])
+  p_str = f"{p:.5f}"
+
+  start_ts, end_ts = get_window_timestamps()
+
+  if t < start_ts or t > end_ts or TRADE_EXECUTED_TODAY:
     return
 
   with lock:
-    if p_str not in price_data:
-      price_data[p_str] = {
-          "buy_u": 0.0,
-          "buy_c": 0,
-          "sell_u": 0.0,
-          "sell_c": 0,
+    if p_str not in price_book:
+      price_book[p_str] = {
+          "limit_buy_count": 0,
+          "limit_sell_count": 0,
+          "total_usdt": 0.0,
+          "first_ts": t,
       }
-    d = price_data[p_str]
 
-    if is_maker:
-      d["buy_u"] += usdt_val
-      d["buy_c"] += 1
-    else:
-      d["sell_u"] += usdt_val
-      d["sell_c"] += 1
+    pb = price_book[p_str]
+    pb["total_usdt"] += p * q
 
+    if is_maker:  # Maker is Buyer (Whale Limit BUY)
+      pb["limit_buy_count"] += 1
+    else:  # Maker is Seller (Whale Limit SELL)
+      pb["limit_sell_count"] += 1
+
+    # Whale Limit BUY Trigger (>= 1 trade & 0 opposite trades)
     if (
-        d["buy_c"] > 0
-        and d["sell_c"] == 0
-        and d["buy_u"] >= MIN_USDT_TRIGGER
+        pb["limit_buy_count"] >= 1
+        and pb["limit_sell_count"] == 0
         and not TRADE_EXECUTED_TODAY
     ):
       TRADE_EXECUTED_TODAY = True
       threading.Thread(
-          target=execute_algo_trade, args=("buy", price)
+          target=execute_algo_trade, args=("buy", p, pb["first_ts"])
       ).start()
+
+    # Whale Limit SELL Trigger (>= 1 trade & 0 opposite trades)
     elif (
-        d["sell_c"] > 0
-        and d["buy_c"] == 0
-        and d["sell_u"] >= MIN_USDT_TRIGGER
+        pb["limit_sell_count"] >= 1
+        and pb["limit_buy_count"] == 0
         and not TRADE_EXECUTED_TODAY
     ):
       TRADE_EXECUTED_TODAY = True
       threading.Thread(
-          target=execute_algo_trade, args=("sell", price)
+          target=execute_algo_trade, args=("sell", p, pb["first_ts"])
       ).start()
 
 
 def start_ws():
-  ws = websocket.WebSocketApp(WS_URL, on_message=on_message)
-  ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False})
+  while True:
+    try:
+      ws = websocket.WebSocketApp(WS_URL, on_message=on_message)
+      ws.run_forever(
+          sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+      )
+    except Exception:
+      time.sleep(2)
 
 
-# Render Port Listener for 24/7 Cloud Uptime
+def keep_awake():
+  while True:
+    time.sleep(300)
+    try:
+      requests.get("https://delta-bot-vuxl.onrender.com", timeout=5)
+    except Exception:
+      pass
+
+
 threading.Thread(target=start_ws, daemon=True).start()
+threading.Thread(target=keep_awake, daemon=True).start()
+
 PORT = int(os.environ.get("PORT", 8080))
 Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
