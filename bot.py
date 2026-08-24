@@ -5,9 +5,13 @@ import http.server
 import json
 import os
 import socketserver
+import sys
 import threading
 import time
 import requests
+
+# Enable Instant Real-Time Output on Render Cloud
+sys.stdout.reconfigure(line_buffering=True)
 
 # --- CONFIG & DELTA DEMO CREDENTIALS ---
 DELTA_API_KEY = "nCXz95sPzB7UrjgOBMnFk62JZmbOOJ"
@@ -17,7 +21,7 @@ DELTA_API_SECRET = (
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 USD Capital
-SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
+SL_POINTS = 0.00010  # 10 Points SL (0.00010 USDT)
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
@@ -29,23 +33,27 @@ ACTIVE_PRODUCT_ID = None
 processed_trade_ids = set()
 
 
+def log_msg(text):
+  print(text, flush=True)
+
+
 def fetch_delta_ada_product():
   global ACTIVE_PRODUCT_ID
   try:
-    print("🔍 Fetching ADA Product ID from Delta Testnet...")
+    log_msg("🔍 Fetching ADA Product ID from Delta Testnet...")
     res = requests.get(f"{DELTA_BASE_URL}/v2/products", timeout=10).json()
     if res.get("success"):
       for prod in res.get("result", []):
         sym = prod.get("symbol", "").upper()
         if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
           ACTIVE_PRODUCT_ID = prod.get("id")
-          print(
+          log_msg(
               f"✅ Found Delta Contract: {sym} (Product ID:"
               f" {ACTIVE_PRODUCT_ID})"
           )
           return ACTIVE_PRODUCT_ID
   except Exception as e:
-    print(f"❌ Product ID Fetch Warning: {e}")
+    log_msg(f"❌ Product ID Fetch Warning: {e}")
 
   ACTIVE_PRODUCT_ID = 27
   return ACTIVE_PRODUCT_ID
@@ -90,17 +98,17 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     sl_price = round(exact_price + SL_POINTS, 5)
     sl_side = "buy"
 
-  print("\n" + "🔥" * 32)
-  print(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
-  print(
+  log_msg("\n" + "🔥" * 32)
+  log_msg(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
+  log_msg(
       f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL:"
       f" {sl_price:.5f} USDT"
   )
-  print(
+  log_msg(
       f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
       f" {ACTIVE_PRODUCT_ID}"
   )
-  print("🔥" * 32 + "\n")
+  log_msg("🔥" * 32 + "\n")
 
   # 1. Entry Order
   try:
@@ -111,13 +119,13 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    print(f"📤 Posting Entry Order to Delta: {entry_payload}")
+    log_msg(f"📤 Posting Entry Order to Delta: {entry_payload}")
     res_entry = send_delta_order("/v2/orders", entry_payload).json()
-    print(f"📥 ENTRY RESPONSE: {res_entry}")
+    log_msg(f"📥 ENTRY RESPONSE: {res_entry}")
 
     if res_entry.get("success"):
       TEST_TRADE_EXECUTED = True
-      print("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
+      log_msg("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
 
       # 2. Stop Loss
       sl_payload = {
@@ -129,24 +137,24 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
           "stop_price": f"{sl_price:.5f}",
           "reduce_only": True,
       }
-      print(f"📤 Posting Stop-Loss Order: {sl_payload}")
+      log_msg(f"📤 Posting Stop-Loss Order: {sl_payload}")
       res_sl = send_delta_order("/v2/orders", sl_payload).json()
-      print(f"📥 STOP-LOSS RESPONSE: {res_sl}")
-      print("🛡️ VERIFIED: Stop-Loss order attached successfully.")
+      log_msg(f"📥 STOP-LOSS RESPONSE: {res_sl}")
+      log_msg("🛡️ VERIFIED: Stop-Loss order attached successfully.")
     else:
-      print(f"❌ Delta API Entry Rejection: {res_entry.get('error')}")
+      log_msg(f"❌ Delta API Entry Rejection: {res_entry.get('error')}")
   except Exception as e:
-    print(f"❌ Execution Exception: {e}")
+    log_msg(f"❌ Execution Exception: {e}")
 
 
 def poll_binance_loop():
   global TEST_TRADE_EXECUTED, processed_trade_ids
   fetch_delta_ada_product()
-  print("✅ [CONNECTED] Binance HTTP Polling Stream is ACTIVE!")
+  log_msg("✅ [CONNECTED] Binance Cloud Polling Stream is ACTIVE!")
 
   endpoints = [
-      "https://api.binance.com/api/v3/trades?symbol=ADAUSDT&limit=10",
       "https://data-api.binance.vision/api/v3/trades?symbol=ADAUSDT&limit=10",
+      "https://api.binance.com/api/v3/trades?symbol=ADAUSDT&limit=10",
   ]
 
   while True:
@@ -154,13 +162,11 @@ def poll_binance_loop():
       time.sleep(10)
       continue
 
-    success = False
     for url in endpoints:
       try:
         resp = requests.get(url, timeout=5)
         if resp.status_code == 200:
           trades = resp.json()
-          success = True
           for tr in trades:
             trade_id = tr.get("id")
             if trade_id in processed_trade_ids:
@@ -175,9 +181,9 @@ def poll_binance_loop():
             is_maker = bool(tr["isBuyerMaker"])
             p_str = f"{p:.5f}"
 
-            print(
-                f"💓 [POLL TICK] ADA: {p:.5f} USDT | Maker:"
-                f" {'BUY' if is_maker else 'SELL'}"
+            log_msg(
+                f"💓 [LIVE TICK] ADA: {p:.5f} USDT | Flow:"
+                f" {'BUY (Support)' if is_maker else 'SELL (Resistance)'}"
             )
 
             if TEST_TRADE_EXECUTED:
@@ -216,7 +222,7 @@ def poll_binance_loop():
                 ).start()
                 break
           break
-      except Exception as e:
+      except Exception:
         continue
 
     time.sleep(1)
@@ -237,5 +243,6 @@ threading.Thread(target=keep_awake, daemon=True).start()
 PORT = int(os.environ.get("PORT", 8080))
 Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
-  print(f"🚀 Render Web Server Running on Port {PORT}")
+  log_msg(f"🚀 Render Web Server Running on Port {PORT}")
   httpd.serve_forever()
+    
