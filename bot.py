@@ -36,10 +36,10 @@ PROXIES = {
 # ==========================================
 DELTA_API_KEY = "X2iJbUraV2vuTUKD5ATHZ0i1NiFPoA"
 DELTA_API_SECRET = (
-    "Hu6Pp6EQYUY5So1CKqbaBvnhtw5P7lHwfd2sgSDQ7nXY6Fsv894ul1Fu8Cvk"
+    "Hu6Pp6EQYUY5So1CKgbaBvnhtw5P7IHwfd2sgSDQ7nXy6Fsv894ul1Fu8Cvk"
 )
 
-# Exact Official Delta Demo API Gateway from Docs
+# Exact Official Delta Demo API Gateway
 ACTIVE_BASE_URL = "https://cdn-ind.testnet.deltaex.org"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
@@ -51,7 +51,7 @@ tz_ist = timezone(IST_OFFSET)
 price_book = {}
 TEST_TRADE_EXECUTED = False
 lock = threading.Lock()
-ACTIVE_PRODUCT_ID = 27
+ACTIVE_PRODUCT_ID = 101760
 processed_trade_ids = set()
 
 
@@ -107,7 +107,7 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
 
 def fetch_delta_ada_product():
   global ACTIVE_PRODUCT_ID
-  log_msg("🔍 Fetching ADAUSD Product ID from Delta Demo Gateway...")
+  log_msg("🔍 Syncing ADA Contract with Delta Demo Gateway...")
   try:
     res = send_delta_request(ACTIVE_BASE_URL, "/v2/products", method="GET")
     if res.get("success"):
@@ -123,7 +123,7 @@ def fetch_delta_ada_product():
   except Exception as e:
     log_msg(f"ℹ️ Defaulting Product ID: {e}")
 
-  ACTIVE_PRODUCT_ID = 27
+  ACTIVE_PRODUCT_ID = 101760
   return ACTIVE_PRODUCT_ID
 
 
