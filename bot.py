@@ -23,11 +23,18 @@ def get_current_server_ip():
         return "IP Fetch Error"
 
 # ==========================================
-# --- DELTA DEMO VERIFIED CREDENTIALS ---
+# --- DELTA CREDENTIALS ---
 # ==========================================
 DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
 DELTA_API_SECRET = "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
-DELTA_BASE_URL = "https://testnet-api.delta.exchange"
+
+CANDIDATE_URLS = [
+    "https://demo-api.delta.exchange",
+    "https://testnet-api.delta.exchange",
+    "https://api.delta.exchange",
+    "https://api.india.delta.exchange"
+]
+ACTIVE_BASE_URL = "https://demo-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0      # $5 Capital
 SL_POINTS = 0.00010        # Exact 10 Points SL (0.00010 USDT)
@@ -38,30 +45,13 @@ tz_ist = timezone(IST_OFFSET)
 price_book = {}
 TEST_TRADE_EXECUTED = False
 lock = threading.Lock()
-ACTIVE_PRODUCT_ID = None
+ACTIVE_PRODUCT_ID = 27
 processed_trade_ids = set()
 
-def fetch_delta_ada_product():
-    global ACTIVE_PRODUCT_ID
-    try:
-        res = requests.get(f"{DELTA_BASE_URL}/v2/products", timeout=10).json()
-        if res.get("success"):
-            for prod in res.get("result", []):
-                sym = prod.get("symbol", "").upper()
-                if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
-                    ACTIVE_PRODUCT_ID = prod.get("id")
-                    log_msg(f"✅ Found Delta Contract: {sym} (Product ID: {ACTIVE_PRODUCT_ID})")
-                    return ACTIVE_PRODUCT_ID
-    except Exception as e:
-        log_msg(f"❌ Product ID Fetch Warning: {e}")
-    
-    ACTIVE_PRODUCT_ID = 27
-    return ACTIVE_PRODUCT_ID
-
-def send_delta_order(endpoint, payload):
+def send_delta_request(base_url, endpoint, payload=None, method="POST"):
     timestamp = str(int(time.time()))
-    body_str = json.dumps(payload, separators=(',', ':'))
-    signature_payload = 'POST' + timestamp + endpoint + body_str
+    body_str = json.dumps(payload, separators=(',', ':')) if payload else ""
+    signature_payload = method + timestamp + endpoint + body_str
     signature = hmac.new(
         DELTA_API_SECRET.encode('utf-8'),
         signature_payload.encode('utf-8'),
@@ -76,14 +66,51 @@ def send_delta_order(endpoint, payload):
         'User-Agent': 'python-trade-bot'
     }
 
-    url = DELTA_BASE_URL + endpoint
-    return requests.post(url, data=body_str, headers=headers, timeout=8)
+    url = base_url + endpoint
+    if method == "POST":
+        return requests.post(url, data=body_str, headers=headers, timeout=8)
+    else:
+        return requests.get(url, headers=headers, timeout=8)
+
+def auto_detect_working_delta_url():
+    global ACTIVE_BASE_URL
+    log_msg("🔍 Auto-detecting correct Delta Server for your API key...")
+    for url in CANDIDATE_URLS:
+        try:
+            res = send_delta_request(url, "/v2/wallet/balances", method="GET").json()
+            if res.get("success"):
+                ACTIVE_BASE_URL = url
+                log_msg(f"🎯 100% CONNECTED & AUTHENTICATED: {ACTIVE_BASE_URL}")
+                return ACTIVE_BASE_URL
+            elif res.get("error", {}).get("code") != "invalid_api_key":
+                ACTIVE_BASE_URL = url
+                log_msg(f"✅ Selected Compatible Delta Endpoint: {ACTIVE_BASE_URL}")
+                return ACTIVE_BASE_URL
+        except Exception:
+            continue
+    log_msg(f"ℹ️ Defaulting to: {ACTIVE_BASE_URL}")
+    return ACTIVE_BASE_URL
+
+def fetch_delta_ada_product():
+    global ACTIVE_PRODUCT_ID
+    try:
+        res = requests.get(f"{ACTIVE_BASE_URL}/v2/products", timeout=10).json()
+        if res.get("success"):
+            for prod in res.get("result", []):
+                sym = prod.get("symbol", "").upper()
+                if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
+                    ACTIVE_PRODUCT_ID = prod.get("id")
+                    log_msg(f"✅ Found Delta Contract: {sym} (Product ID: {ACTIVE_PRODUCT_ID})")
+                    return ACTIVE_PRODUCT_ID
+    except Exception as e:
+        log_msg(f"❌ Product ID Fetch Warning: {e}")
+    
+    ACTIVE_PRODUCT_ID = 27
+    return ACTIVE_PRODUCT_ID
 
 def execute_test_trade(side, exact_price, trigger_ts_ms):
     global TEST_TRADE_EXECUTED, ACTIVE_PRODUCT_ID
-    if not ACTIVE_PRODUCT_ID:
-        fetch_delta_ada_product()
-
+    
     contract_size = max(1, int(TRADE_VALUE_USD / exact_price))
     exec_time_str = datetime.fromtimestamp(trigger_ts_ms / 1000, tz=tz_ist).strftime('%H:%M:%S.%f')[:-3]
 
@@ -98,6 +125,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     log_msg(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
     log_msg(f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL: {sl_price:.5f} USDT")
     log_msg(f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID: {ACTIVE_PRODUCT_ID}")
+    log_msg(f"🌐 Target Server: {ACTIVE_BASE_URL}")
     log_msg("🔥"*32 + "\n")
 
     # 1. Entry Limit Order
@@ -110,7 +138,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
             "limit_price": f"{exact_price:.5f}"
         }
         log_msg(f"📤 Posting Entry Order to Delta: {entry_payload}")
-        res_entry = send_delta_order("/v2/orders", entry_payload).json()
+        res_entry = send_delta_request(ACTIVE_BASE_URL, "/v2/orders", payload=entry_payload, method="POST").json()
         log_msg(f"📥 ENTRY RESPONSE: {res_entry}")
 
         if res_entry.get("success"):
@@ -128,7 +156,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
                 "reduce_only": True
             }
             log_msg(f"📤 Posting Stop-Loss Order: {sl_payload}")
-            res_sl = send_delta_order("/v2/orders", sl_payload).json()
+            res_sl = send_delta_request(ACTIVE_BASE_URL, "/v2/orders", payload=sl_payload, method="POST").json()
             log_msg(f"📥 STOP-LOSS RESPONSE: {res_sl}")
             log_msg("🛡️ VERIFIED: Stop-Loss order attached successfully.")
         else:
@@ -138,6 +166,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
 
 def poll_binance_loop():
     global TEST_TRADE_EXECUTED, processed_trade_ids
+    auto_detect_working_delta_url()
     fetch_delta_ada_product()
     log_msg("✅ [CONNECTED] Binance Cloud Polling Stream is ACTIVE!")
     
