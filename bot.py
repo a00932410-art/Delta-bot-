@@ -32,20 +32,22 @@ PROXIES = {
 }
 
 # ==========================================
-# --- DELTA CREDENTIALS & OFFICIAL APIS ---
+# --- DELTA DEMO CREDENTIALS & GATEWAYS ---
 # ==========================================
 DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
 DELTA_API_SECRET = (
     "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
 )
 
-# Official API Gateways (No Web UI Domains)
+# All Delta Demo & Regional API Endpoints
 CANDIDATE_URLS = [
-    "https://testnet-api.delta.exchange",
+    "https://testnet-api.india.delta.exchange",
     "https://api.india.delta.exchange",
+    "https://testnet-api.delta.exchange",
     "https://api.delta.exchange",
 ]
-ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
+ACTIVE_BASE_URL = "https://testnet-api.india.delta.exchange"
+AUTHENTICATED = False
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
 SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
@@ -103,7 +105,7 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
           "success": False,
           "error": {
               "code": f"HTTP_{res.status_code}",
-              "response_text": res.text[:120],
+              "text": res.text[:100],
           },
       }
   except Exception as e:
@@ -111,22 +113,21 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
 
 
 def auto_detect_working_delta_url():
-  global ACTIVE_BASE_URL
-  log_msg("🔍 Authenticating with Delta Official Gateways via Static Proxy...")
+  global ACTIVE_BASE_URL, AUTHENTICATED
+  log_msg("🔍 Scanning Delta Demo Endpoints via Static IP 31.59.20.176...")
   for url in CANDIDATE_URLS:
     try:
       res = send_delta_request(url, "/v2/wallet/balances", method="GET")
+      log_msg(f"📡 Testing {url} -> Response: {res}")
       if res.get("success") is True:
         ACTIVE_BASE_URL = url
-        log_msg(f"🎯 100% CONNECTED & AUTHENTICATED: {ACTIVE_BASE_URL}")
+        AUTHENTICATED = True
+        log_msg(f"🎯 100% AUTHENTICATED WITH DEMO GATEWAY: {ACTIVE_BASE_URL}")
         return ACTIVE_BASE_URL
-      else:
-        log_msg(f"ℹ️ Handshake {url} -> {res.get('error', {})}")
     except Exception as e:
-      log_msg(f"⚠️ Proxy check {url}: {e}")
+      log_msg(f"⚠️ Gateway {url} error: {e}")
 
-  ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
-  log_msg(f"🚀 Delta Active Target: {ACTIVE_BASE_URL}")
+  log_msg(f"🚀 Using Default Demo Gateway: {ACTIVE_BASE_URL}")
   return ACTIVE_BASE_URL
 
 
@@ -142,7 +143,7 @@ def fetch_delta_ada_product():
         if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
           ACTIVE_PRODUCT_ID = prod.get("id")
           log_msg(
-              f"✅ Found Delta Contract: {sym} (Product ID:"
+              f"✅ Found Delta Demo Contract: {sym} (Product ID:"
               f" {ACTIVE_PRODUCT_ID})"
           )
           return ACTIVE_PRODUCT_ID
@@ -171,14 +172,14 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
   log_msg("\n" + "🔥" * 32)
   log_msg(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
   log_msg(
-      f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL:"
+      f"⚡ Side: {side.upper()} | ADA Price: {exact_price:.5f} USDT | SL:"
       f" {sl_price:.5f} USDT"
   )
   log_msg(
       f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
       f" {ACTIVE_PRODUCT_ID}"
   )
-  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Gateway: {ACTIVE_BASE_URL}")
+  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Demo Gateway: {ACTIVE_BASE_URL}")
   log_msg("🔥" * 32 + "\n")
 
   # 1. Entry Limit Order
@@ -190,7 +191,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    log_msg(f"📤 Posting Entry Order: {entry_payload}")
+    log_msg(f"📤 Posting Entry Order to Delta Demo: {entry_payload}")
     res_entry = send_delta_request(
         ACTIVE_BASE_URL, "/v2/orders", payload=entry_payload, method="POST"
     )
@@ -217,7 +218,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       log_msg(f"📥 STOP-LOSS RESPONSE: {res_sl}")
       log_msg("🛡️ VERIFIED: Stop-Loss order attached successfully.")
     else:
-      log_msg(f"❌ Delta API Entry Rejection: {res_entry.get('error')}")
+      log_msg(f"❌ Delta Demo Entry Rejection: {res_entry.get('error')}")
   except Exception as e:
     log_msg(f"❌ Execution Exception: {e}")
 
@@ -316,11 +317,11 @@ class WebHandler(http.server.BaseHTTPRequestHandler):
         <html>
         <head><title>Cloud Bot Status</title><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>
         <body style='background:#121212; color:#ffffff; font-family:sans-serif; text-align:center; padding:30px;'>
-            <h2 style='color:#00ff88;'>⚡ Delta Bot Static IP Active:</h2>
+            <h2 style='color:#00ff88;'>⚡ Delta Demo Bot Running 24/7:</h2>
             <div style='background:#222; padding:20px; border-radius:10px; font-size:28px; font-weight:bold; color:#00e5ff; margin:20px 0;'>
                 {ip}
             </div>
-            <p style='color:#aaa;'>Whitelisted IP: 31.59.20.176 | Running 24/7 on Cloud.</p>
+            <p style='color:#aaa;'>Whitelisted Static IP: 31.59.20.176 | Active on Cloud.</p>
         </body>
         </html>
         """
