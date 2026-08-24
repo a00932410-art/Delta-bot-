@@ -19,9 +19,9 @@ DELTA_API_SECRET = (
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 USD Capital
-SL_POINTS = 0.00010  # 10 Points SL (0.00010 USDT)
+SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
 
-# Global Non-Blocked Cloud Endpoints
+# Global Cloud Stream Endpoints
 WS_ENDPOINTS = [
     "wss://data-stream.binance.vision/ws/adausdt@aggTrade",
     "wss://fstream.binance.com/ws/adausdt@aggTrade",
@@ -56,7 +56,7 @@ def fetch_delta_ada_product():
   except Exception as e:
     print(f"❌ Product ID Fetch Warning: {e}")
 
-  ACTIVE_PRODUCT_ID = 27  # Default Fallback
+  ACTIVE_PRODUCT_ID = 27
   return ACTIVE_PRODUCT_ID
 
 
@@ -111,7 +111,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
   )
   print("🔥" * 32 + "\n")
 
-  # Entry Order
+  # 1. Entry Order
   try:
     entry_payload = {
         "product_id": ACTIVE_PRODUCT_ID,
@@ -120,7 +120,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    print(f"📤 Posting Entry Order to Delta API: {entry_payload}")
+    print(f"📤 Posting Entry Order to Delta: {entry_payload}")
     res_entry = send_delta_order("/v2/orders", entry_payload).json()
     print(f"📥 ENTRY RESPONSE: {res_entry}")
 
@@ -128,7 +128,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       TEST_TRADE_EXECUTED = True
       print("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
 
-      # 10-Point Stop Loss
+      # 2. Stop Loss
       sl_payload = {
           "product_id": ACTIVE_PRODUCT_ID,
           "size": contract_size,
@@ -259,4 +259,3 @@ Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
   print(f"🚀 Render Web Server Running on Port {PORT}")
   httpd.serve_forever()
-            
