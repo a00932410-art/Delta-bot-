@@ -19,11 +19,15 @@ DELTA_API_SECRET = (
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 USD Capital
-SL_POINTS = 0.00010  # Exact 10 Points SL
-SYMBOL = "adausdt"
-WS_URL = f"wss://stream.binance.com:9443/ws/{SYMBOL}@aggTrade"
+SL_POINTS = 0.00010  # 10 Points SL (0.00010 USDT)
 
-# IST Timezone
+# Global Non-Blocked Cloud Endpoints
+WS_ENDPOINTS = [
+    "wss://data-stream.binance.vision/ws/adausdt@aggTrade",
+    "wss://fstream.binance.com/ws/adausdt@aggTrade",
+    "wss://stream.binance.com:443/ws/adausdt@aggTrade",
+]
+
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
 
@@ -31,7 +35,7 @@ price_book = {}
 TEST_TRADE_EXECUTED = False
 lock = threading.Lock()
 ACTIVE_PRODUCT_ID = None
-LAST_LOG_TIME = 0
+LAST_HEARTBEAT = 0
 
 
 def fetch_delta_ada_product():
@@ -42,23 +46,15 @@ def fetch_delta_ada_product():
     if res.get("success"):
       for prod in res.get("result", []):
         sym = prod.get("symbol", "").upper()
-        if (
-            "ADA" in sym
-            and "USD" in sym
-            and prod.get("contract_type") == "perpetual_futures"
-        ):
-          ACTIVE_PRODUCT_ID = prod.get("id")
-          print(f"✅ Found Delta Contract: {sym} | Product ID: {ACTIVE_PRODUCT_ID}")
-          return ACTIVE_PRODUCT_ID
-      # Fallback agar contract_type match na ho
-      for prod in res.get("result", []):
-        sym = prod.get("symbol", "").upper()
         if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
           ACTIVE_PRODUCT_ID = prod.get("id")
-          print(f"✅ Found Delta Contract: {sym} | Product ID: {ACTIVE_PRODUCT_ID}")
+          print(
+              f"✅ Found Delta Contract: {sym} (Product ID:"
+              f" {ACTIVE_PRODUCT_ID})"
+          )
           return ACTIVE_PRODUCT_ID
   except Exception as e:
-    print(f"❌ Product ID Fetch Error: {e}")
+    print(f"❌ Product ID Fetch Warning: {e}")
 
   ACTIVE_PRODUCT_ID = 27  # Default Fallback
   return ACTIVE_PRODUCT_ID
@@ -92,7 +88,6 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     fetch_delta_ada_product()
 
   contract_size = max(1, int(TRADE_VALUE_USD / exact_price))
-
   exec_time_str = datetime.fromtimestamp(
       trigger_ts_ms / 1000, tz=tz_ist
   ).strftime("%H:%M:%S.%f")[:-3]
@@ -104,19 +99,19 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     sl_price = round(exact_price + SL_POINTS, 5)
     sl_side = "buy"
 
-  print("\n" + "🔥" * 30)
-  print(f"🚀 [LIVE TEST TRIGGERED AT: {exec_time_str} IST]")
+  print("\n" + "🔥" * 32)
+  print(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
   print(
-      f"⚡ Target Side: {side.upper()} | Exact Price: {exact_price:.5f} USDT |"
-      f" Stop Loss: {sl_price:.5f} USDT"
+      f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL:"
+      f" {sl_price:.5f} USDT"
   )
   print(
-      f"💰 Order Capital: ${TRADE_VALUE_USD} | Contract Size: {contract_size} |"
-      f" Product ID: {ACTIVE_PRODUCT_ID}"
+      f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
+      f" {ACTIVE_PRODUCT_ID}"
   )
-  print("🔥" * 30 + "\n")
+  print("🔥" * 32 + "\n")
 
-  # 1. SEND ENTRY ORDER
+  # Entry Order
   try:
     entry_payload = {
         "product_id": ACTIVE_PRODUCT_ID,
@@ -125,15 +120,15 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    print(f"📤 Sending Entry Order to Delta: {entry_payload}")
+    print(f"📤 Posting Entry Order to Delta API: {entry_payload}")
     res_entry = send_delta_order("/v2/orders", entry_payload).json()
-    print(f"📥 ENTRY ORDER RESPONSE: {json.dumps(res_entry, indent=2)}")
+    print(f"📥 ENTRY RESPONSE: {res_entry}")
 
     if res_entry.get("success"):
       TEST_TRADE_EXECUTED = True
-      print("🎉 SUCCESS: Entry Limit Order placed successfully on Delta Demo!")
+      print("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
 
-      # 2. SEND 10-POINT STOP LOSS
+      # 10-Point Stop Loss
       sl_payload = {
           "product_id": ACTIVE_PRODUCT_ID,
           "size": contract_size,
@@ -143,30 +138,30 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
           "stop_price": f"{sl_price:.5f}",
           "reduce_only": True,
       }
-      print(f"📤 Sending Stop-Loss Order: {sl_payload}")
+      print(f"📤 Posting Stop-Loss Order: {sl_payload}")
       res_sl = send_delta_order("/v2/orders", sl_payload).json()
-      print(f"📥 STOP LOSS RESPONSE: {json.dumps(res_sl, indent=2)}")
-
-      if res_sl.get("success"):
-        print(
-            "🛡️ 100% VERIFIED: Stop-Loss attached perfectly to the live"
-            " position!"
-        )
-      else:
-        print(
-            "⚠️ Stop-Loss Placement Warning:"
-            f" {res_sl.get('error', 'Unknown response')}"
-        )
+      print(f"📥 STOP-LOSS RESPONSE: {res_sl}")
+      print("🛡️ VERIFIED: Stop-Loss order attached successfully.")
     else:
-      print(
-          f"❌ Entry Rejected by Delta: {res_entry.get('error', 'Unknown Error')}"
-      )
+      print(f"❌ Delta API Entry Rejection: {res_entry.get('error')}")
   except Exception as e:
     print(f"❌ Execution Exception: {e}")
 
 
+def on_open(ws):
+  print("✅ [CONNECTED] Binance WebSocket Stream is LIVE and Receiving Ticks!")
+
+
+def on_error(ws, error):
+  print(f"⚠️ WebSocket Warning: {error}")
+
+
+def on_close(ws, close_status_code, close_msg):
+  print(f"🔌 Stream Closed ({close_status_code}). Reconnecting cleanly...")
+
+
 def on_message(ws, message):
-  global TEST_TRADE_EXECUTED, LAST_LOG_TIME
+  global TEST_TRADE_EXECUTED, LAST_HEARTBEAT
   msg = json.loads(message)
 
   p = float(msg["p"])
@@ -175,14 +170,13 @@ def on_message(ws, message):
   is_maker = bool(msg["m"])
   p_str = f"{p:.5f}"
 
-  # Har 3 second me live heartbeat log
-  now_sec = time.time()
-  if now_sec - LAST_LOG_TIME >= 3:
-    print(
-        f"💓 [LIVE FEED ACTIVE] ADA Price: {p:.5f} USDT | Maker:"
-        f" {'BUY (Whale Support)' if is_maker else 'SELL (Whale Resistance)'}"
+  now = time.time()
+  if now - LAST_HEARTBEAT >= 4:
+    maker_type = (
+        "BUY (Whale Support)" if is_maker else "SELL (Whale Resistance)"
     )
-    LAST_LOG_TIME = now_sec
+    print(f"💓 [LIVE TICK] ADA: {p:.5f} USDT | Flow: {maker_type}")
+    LAST_HEARTBEAT = now
 
   if TEST_TRADE_EXECUTED:
     return
@@ -192,13 +186,10 @@ def on_message(ws, message):
       price_book[p_str] = {
           "limit_buy_count": 0,
           "limit_sell_count": 0,
-          "total_usdt": 0.0,
           "first_ts": t,
       }
 
     pb = price_book[p_str]
-    pb["total_usdt"] += p * q
-
     if is_maker:
       pb["limit_buy_count"] += 1
     else:
@@ -227,16 +218,28 @@ def on_message(ws, message):
 
 def start_ws():
   fetch_delta_ada_product()
+  endpoint_idx = 0
   while True:
+    url = WS_ENDPOINTS[endpoint_idx % len(WS_ENDPOINTS)]
     try:
-      print("🔌 Connecting to Binance WebSocket Stream (adausdt@aggTrade)...")
-      ws = websocket.WebSocketApp(WS_URL, on_message=on_message)
+      print(f"🔌 Connecting to Stream Endpoint: {url}")
+      ws = websocket.WebSocketApp(
+          url,
+          on_open=on_open,
+          on_message=on_message,
+          on_error=on_error,
+          on_close=on_close,
+      )
       ws.run_forever(
-          sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False}
+          sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False},
+          ping_interval=20,
+          ping_timeout=10,
       )
     except Exception as e:
-      print(f"WebSocket Reconnecting in 2s... Error: {e}")
-      time.sleep(2)
+      print(f"WebSocket Exception: {e}")
+
+    endpoint_idx += 1
+    time.sleep(3)
 
 
 def keep_awake():
@@ -254,6 +257,6 @@ threading.Thread(target=keep_awake, daemon=True).start()
 PORT = int(os.environ.get("PORT", 8080))
 Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
-  print(f"🚀 Render Web Server Live on Port {PORT}")
+  print(f"🚀 Render Web Server Running on Port {PORT}")
   httpd.serve_forever()
-    
+            
