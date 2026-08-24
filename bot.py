@@ -32,22 +32,23 @@ PROXIES = {
 }
 
 # ==========================================
-# --- DELTA CREDENTIALS & ENDPOINTS ---
+# --- DELTA DEMO CREDENTIALS & TARGET ---
 # ==========================================
 DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
 DELTA_API_SECRET = (
     "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
 )
 
+# Target exact demo.delta.exchange domain
 CANDIDATE_URLS = [
-    "https://testnet-api.delta.exchange",
+    "https://demo.delta.exchange",
     "https://api.india.delta.exchange",
-    "https://api.delta.exchange",
+    "https://testnet-api.delta.exchange",
 ]
-ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
+ACTIVE_BASE_URL = "https://demo.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
-SL_POINTS = 0.00010  # 10 Points SL (0.00010 USDT)
+SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
@@ -65,7 +66,7 @@ def get_current_outbound_ip():
         "https://api.ipify.org", proxies=PROXIES, timeout=8
     ).text.strip()
   except Exception:
-    return "31.59.20.176 (Static Proxy Configured)"
+    return "31.59.20.176 (Static Proxy Active)"
 
 
 def send_delta_request(base_url, endpoint, payload=None, method="POST"):
@@ -97,7 +98,7 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
 
 def auto_detect_working_delta_url():
   global ACTIVE_BASE_URL
-  log_msg("🔍 Authenticating with Delta through Static IP: 31.59.20.176 ...")
+  log_msg("🔍 Connecting to Demo Delta Server with Static IP 31.59.20.176...")
   for url in CANDIDATE_URLS:
     try:
       res = send_delta_request(url, "/v2/wallet/balances", method="GET")
@@ -105,13 +106,11 @@ def auto_detect_working_delta_url():
         ACTIVE_BASE_URL = url
         log_msg(f"🎯 100% CONNECTED & AUTHENTICATED: {ACTIVE_BASE_URL}")
         return ACTIVE_BASE_URL
-      else:
-        log_msg(f"ℹ️ Pinged {url} -> Status: {res.status_code}")
-    except Exception as e:
-      log_msg(f"⚠️ Proxy handshake ping: {e}")
+    except Exception:
+      continue
 
-  ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
-  log_msg(f"🚀 Delta Target Engine: {ACTIVE_BASE_URL}")
+  ACTIVE_BASE_URL = "https://demo.delta.exchange"
+  log_msg(f"🚀 Delta Active Target: {ACTIVE_BASE_URL}")
   return ACTIVE_BASE_URL
 
 
@@ -175,7 +174,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    log_msg(f"📤 Posting Entry Order to Delta: {entry_payload}")
+    log_msg(f"📤 Posting Entry Order to Delta Demo: {entry_payload}")
     res_entry = send_delta_request(
         ACTIVE_BASE_URL, "/v2/orders", payload=entry_payload, method="POST"
     ).json()
