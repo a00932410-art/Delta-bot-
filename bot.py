@@ -39,15 +39,13 @@ DELTA_API_SECRET = (
     "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
 )
 
-# All Delta Demo & Regional API Endpoints
+# Only 100% Valid Delta API Gateways
 CANDIDATE_URLS = [
-    "https://testnet-api.india.delta.exchange",
-    "https://api.india.delta.exchange",
     "https://testnet-api.delta.exchange",
+    "https://api.india.delta.exchange",
     "https://api.delta.exchange",
 ]
-ACTIVE_BASE_URL = "https://testnet-api.india.delta.exchange"
-AUTHENTICATED = False
+ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
 SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
@@ -113,21 +111,21 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
 
 
 def auto_detect_working_delta_url():
-  global ACTIVE_BASE_URL, AUTHENTICATED
-  log_msg("🔍 Scanning Delta Demo Endpoints via Static IP 31.59.20.176...")
+  global ACTIVE_BASE_URL
+  log_msg("🔍 Authenticating with Delta Gateways via Static IP 31.59.20.176...")
   for url in CANDIDATE_URLS:
     try:
       res = send_delta_request(url, "/v2/wallet/balances", method="GET")
-      log_msg(f"📡 Testing {url} -> Response: {res}")
+      log_msg(f"📡 Gateway Ping {url} -> {res}")
       if res.get("success") is True:
         ACTIVE_BASE_URL = url
-        AUTHENTICATED = True
-        log_msg(f"🎯 100% AUTHENTICATED WITH DEMO GATEWAY: {ACTIVE_BASE_URL}")
+        log_msg(f"🎯 100% AUTHENTICATED WITH GATEWAY: {ACTIVE_BASE_URL}")
         return ACTIVE_BASE_URL
     except Exception as e:
-      log_msg(f"⚠️ Gateway {url} error: {e}")
+      log_msg(f"⚠️ Gateway {url} ping failed: {e}")
 
-  log_msg(f"🚀 Using Default Demo Gateway: {ACTIVE_BASE_URL}")
+  ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
+  log_msg(f"🚀 Locked Delta Active Target: {ACTIVE_BASE_URL}")
   return ACTIVE_BASE_URL
 
 
@@ -143,7 +141,7 @@ def fetch_delta_ada_product():
         if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
           ACTIVE_PRODUCT_ID = prod.get("id")
           log_msg(
-              f"✅ Found Delta Demo Contract: {sym} (Product ID:"
+              f"✅ Found Delta Contract: {sym} (Product ID:"
               f" {ACTIVE_PRODUCT_ID})"
           )
           return ACTIVE_PRODUCT_ID
@@ -179,7 +177,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
       f" {ACTIVE_PRODUCT_ID}"
   )
-  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Demo Gateway: {ACTIVE_BASE_URL}")
+  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Gateway: {ACTIVE_BASE_URL}")
   log_msg("🔥" * 32 + "\n")
 
   # 1. Entry Limit Order
