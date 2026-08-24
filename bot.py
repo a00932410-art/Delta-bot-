@@ -32,20 +32,20 @@ PROXIES = {
 }
 
 # ==========================================
-# --- DELTA DEMO CREDENTIALS & TARGET ---
+# --- DELTA CREDENTIALS & OFFICIAL APIS ---
 # ==========================================
 DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
 DELTA_API_SECRET = (
     "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
 )
 
-# Target exact demo.delta.exchange domain
+# Official API Gateways (No Web UI Domains)
 CANDIDATE_URLS = [
-    "https://demo.delta.exchange",
-    "https://api.india.delta.exchange",
     "https://testnet-api.delta.exchange",
+    "https://api.india.delta.exchange",
+    "https://api.delta.exchange",
 ]
-ACTIVE_BASE_URL = "https://demo.delta.exchange"
+ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
 SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
@@ -88,28 +88,44 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
   }
 
   url = base_url + endpoint
-  if method == "POST":
-    return requests.post(
-        url, data=body_str, headers=headers, proxies=PROXIES, timeout=10
-    )
-  else:
-    return requests.get(url, headers=headers, proxies=PROXIES, timeout=10)
+  try:
+    if method == "POST":
+      res = requests.post(
+          url, data=body_str, headers=headers, proxies=PROXIES, timeout=10
+      )
+    else:
+      res = requests.get(url, headers=headers, proxies=PROXIES, timeout=10)
+
+    try:
+      return res.json()
+    except Exception:
+      return {
+          "success": False,
+          "error": {
+              "code": f"HTTP_{res.status_code}",
+              "response_text": res.text[:120],
+          },
+      }
+  except Exception as e:
+    return {"success": False, "error": {"code": "NETWORK_ERR", "msg": str(e)}}
 
 
 def auto_detect_working_delta_url():
   global ACTIVE_BASE_URL
-  log_msg("🔍 Connecting to Demo Delta Server with Static IP 31.59.20.176...")
+  log_msg("🔍 Authenticating with Delta Official Gateways via Static Proxy...")
   for url in CANDIDATE_URLS:
     try:
       res = send_delta_request(url, "/v2/wallet/balances", method="GET")
-      if res.status_code == 200:
+      if res.get("success") is True:
         ACTIVE_BASE_URL = url
         log_msg(f"🎯 100% CONNECTED & AUTHENTICATED: {ACTIVE_BASE_URL}")
         return ACTIVE_BASE_URL
-    except Exception:
-      continue
+      else:
+        log_msg(f"ℹ️ Handshake {url} -> {res.get('error', {})}")
+    except Exception as e:
+      log_msg(f"⚠️ Proxy check {url}: {e}")
 
-  ACTIVE_BASE_URL = "https://demo.delta.exchange"
+  ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
   log_msg(f"🚀 Delta Active Target: {ACTIVE_BASE_URL}")
   return ACTIVE_BASE_URL
 
@@ -162,7 +178,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
       f" {ACTIVE_PRODUCT_ID}"
   )
-  log_msg(f"🌐 Outbound Static IP: {PROXY_IP} | Server: {ACTIVE_BASE_URL}")
+  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Gateway: {ACTIVE_BASE_URL}")
   log_msg("🔥" * 32 + "\n")
 
   # 1. Entry Limit Order
@@ -174,10 +190,10 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
         "order_type": "limit_order",
         "limit_price": f"{exact_price:.5f}",
     }
-    log_msg(f"📤 Posting Entry Order to Delta Demo: {entry_payload}")
+    log_msg(f"📤 Posting Entry Order: {entry_payload}")
     res_entry = send_delta_request(
         ACTIVE_BASE_URL, "/v2/orders", payload=entry_payload, method="POST"
-    ).json()
+    )
     log_msg(f"📥 ENTRY RESPONSE: {res_entry}")
 
     if res_entry.get("success"):
@@ -197,7 +213,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       log_msg(f"📤 Posting Stop-Loss Order: {sl_payload}")
       res_sl = send_delta_request(
           ACTIVE_BASE_URL, "/v2/orders", payload=sl_payload, method="POST"
-      ).json()
+      )
       log_msg(f"📥 STOP-LOSS RESPONSE: {res_sl}")
       log_msg("🛡️ VERIFIED: Stop-Loss order attached successfully.")
     else:
