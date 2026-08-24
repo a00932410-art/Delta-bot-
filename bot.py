@@ -10,7 +10,7 @@ import threading
 import time
 import requests
 
-# Enable instant real-time output in Render Cloud Logs
+# Enable Instant Logging
 sys.stdout.reconfigure(line_buffering=True)
 
 
@@ -18,25 +18,22 @@ def log_msg(text):
   print(text, flush=True)
 
 
-# --- 1. DETECT & PRINT RENDER CLOUD OUTBOUND IP ---
-try:
-  cloud_ip = requests.get("https://api.ipify.org", timeout=5).text.strip()
-  log_msg("\n" + "🌐" * 32)
-  log_msg(f"📌 RENDER CLOUD SERVER IP: {cloud_ip}")
-  log_msg("👉 Is IP ko copy karke Delta 'Trusted IPs' me paste karein!")
-  log_msg("🌐" * 32 + "\n")
-except Exception as e:
-  log_msg(f"⚠️ Could not fetch Cloud IP: {e}")
+def get_current_server_ip():
+  try:
+    return requests.get("https://api.ipify.org", timeout=5).text.strip()
+  except Exception:
+    return "IP Fetch Error"
 
-# --- 2. CONFIG & DELTA DEMO CREDENTIALS ---
+
+# --- CONFIG & DELTA DEMO CREDENTIALS ---
 DELTA_API_KEY = "nCXz95sPzB7UrjgOBMnFk62JZmbOOJ"
 DELTA_API_SECRET = (
     "ht1GmKWtGJqrqvtynBbbcWfsF0xC7R0wsi0xbz8bJJH4eqDOqauuQEbLCmyD"
 )
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
-TRADE_VALUE_USD = 5.0  # $5 USD Capital
-SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
+TRADE_VALUE_USD = 5.0
+SL_POINTS = 0.00010
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
@@ -51,7 +48,6 @@ processed_trade_ids = set()
 def fetch_delta_ada_product():
   global ACTIVE_PRODUCT_ID
   try:
-    log_msg("🔍 Fetching ADA Product ID from Delta Testnet...")
     res = requests.get(f"{DELTA_BASE_URL}/v2/products", timeout=10).json()
     if res.get("success"):
       for prod in res.get("result", []):
@@ -121,7 +117,6 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
   )
   log_msg("🔥" * 32 + "\n")
 
-  # 1. Entry Limit Order
   try:
     entry_payload = {
         "product_id": ACTIVE_PRODUCT_ID,
@@ -138,7 +133,6 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       TEST_TRADE_EXECUTED = True
       log_msg("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
 
-      # 2. Stop Loss Order
       sl_payload = {
           "product_id": ACTIVE_PRODUCT_ID,
           "size": contract_size,
@@ -239,6 +233,29 @@ def poll_binance_loop():
     time.sleep(1)
 
 
+class WebHandler(http.server.BaseHTTPRequestHandler):
+
+  def do_GET(self):
+    ip = get_current_server_ip()
+    self.send_response(200)
+    self.send_header("Content-type", "text/html")
+    self.end_headers()
+    html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Render Server IP</title><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>
+        <body style='background:#121212; color:#ffffff; font-family:sans-serif; text-align:center; padding:30px;'>
+            <h2 style='color:#00ff88;'>⚡ Render Outbound IP Address:</h2>
+            <div style='background:#222; padding:20px; border-radius:10px; font-size:28px; font-weight:bold; color:#00e5ff; margin:20px 0;'>
+                {ip}
+            </div>
+            <p style='color:#aaa;'>Is IP ko copy karke Delta 'Trusted IPs' box me paste karke (+) dabayein.</p>
+        </body>
+        </html>
+        """
+    self.wfile.write(html_content.encode("utf-8"))
+
+
 def keep_awake():
   while True:
     time.sleep(300)
@@ -252,7 +269,6 @@ threading.Thread(target=poll_binance_loop, daemon=True).start()
 threading.Thread(target=keep_awake, daemon=True).start()
 
 PORT = int(os.environ.get("PORT", 8080))
-Handler = http.server.SimpleHTTPRequestHandler
-with socketserver.TCPServer(("", PORT), Handler) as httpd:
+with socketserver.TCPServer(("", PORT), WebHandler) as httpd:
   log_msg(f"🚀 Render Web Server Running on Port {PORT}")
   httpd.serve_forever()
