@@ -32,14 +32,14 @@ PROXIES = {
 }
 
 # ==========================================
-# --- DELTA DEMO 100% VERIFIED CREDENTIALS ---
+# --- DELTA DEMO VERIFIED CREDENTIALS ---
 # ==========================================
 DELTA_API_KEY = "X2iJbUraV2vuTUKD5ATHZ0i1NiFPoA"
 DELTA_API_SECRET = (
     "Hu6Pp6EQYUY5So1CKqbaBvnhtw5P7lHwfd2sgSDQ7nXy6Fsv894ul1Fu8Cvk"
 )
 
-# Exact Official Delta Demo Gateway
+# Official Delta Demo API Gateway
 ACTIVE_BASE_URL = "https://cdn-ind.testnet.deltaex.org"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
