@@ -10,10 +10,25 @@ import threading
 import time
 import requests
 
-# Enable Instant Real-Time Output on Render Cloud
+# Enable instant real-time output in Render Cloud Logs
 sys.stdout.reconfigure(line_buffering=True)
 
-# --- CONFIG & DELTA DEMO CREDENTIALS ---
+
+def log_msg(text):
+  print(text, flush=True)
+
+
+# --- 1. DETECT & PRINT RENDER CLOUD OUTBOUND IP ---
+try:
+  cloud_ip = requests.get("https://api.ipify.org", timeout=5).text.strip()
+  log_msg("\n" + "🌐" * 32)
+  log_msg(f"📌 RENDER CLOUD SERVER IP: {cloud_ip}")
+  log_msg("👉 Is IP ko copy karke Delta 'Trusted IPs' me paste karein!")
+  log_msg("🌐" * 32 + "\n")
+except Exception as e:
+  log_msg(f"⚠️ Could not fetch Cloud IP: {e}")
+
+# --- 2. CONFIG & DELTA DEMO CREDENTIALS ---
 DELTA_API_KEY = "nCXz95sPzB7UrjgOBMnFk62JZmbOOJ"
 DELTA_API_SECRET = (
     "ht1GmKWtGJqrqvtynBbbcWfsF0xC7R0wsi0xbz8bJJH4eqDOqauuQEbLCmyD"
@@ -21,7 +36,7 @@ DELTA_API_SECRET = (
 DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0  # $5 USD Capital
-SL_POINTS = 0.00010  # 10 Points SL (0.00010 USDT)
+SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
@@ -31,10 +46,6 @@ TEST_TRADE_EXECUTED = False
 lock = threading.Lock()
 ACTIVE_PRODUCT_ID = None
 processed_trade_ids = set()
-
-
-def log_msg(text):
-  print(text, flush=True)
 
 
 def fetch_delta_ada_product():
@@ -110,7 +121,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
   )
   log_msg("🔥" * 32 + "\n")
 
-  # 1. Entry Order
+  # 1. Entry Limit Order
   try:
     entry_payload = {
         "product_id": ACTIVE_PRODUCT_ID,
@@ -127,7 +138,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       TEST_TRADE_EXECUTED = True
       log_msg("🎉 SUCCESS: Entry Limit Order is LIVE on Delta Demo!")
 
-      # 2. Stop Loss
+      # 2. Stop Loss Order
       sl_payload = {
           "product_id": ACTIVE_PRODUCT_ID,
           "size": contract_size,
@@ -245,4 +256,3 @@ Handler = http.server.SimpleHTTPRequestHandler
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
   log_msg(f"🚀 Render Web Server Running on Port {PORT}")
   httpd.serve_forever()
-    
