@@ -32,20 +32,15 @@ PROXIES = {
 }
 
 # ==========================================
-# --- DELTA DEMO CREDENTIALS & GATEWAYS ---
+# --- DELTA DEMO OFFICIAL CREDENTIALS & URL ---
 # ==========================================
-DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
+DELTA_API_KEY = "X2iJbUraV2vuTUKD5ATHZ0i1NiFPoA"
 DELTA_API_SECRET = (
-    "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
+    "Hu6Pp6EQYUY5So1CKqbaBvnhtw5P7lHwfd2sgSDQ7nXY6Fsv894ul1Fu8Cvk"
 )
 
-# Only 100% Valid Delta API Gateways
-CANDIDATE_URLS = [
-    "https://testnet-api.delta.exchange",
-    "https://api.india.delta.exchange",
-    "https://api.delta.exchange",
-]
-ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
+# Exact Official Delta Demo API Gateway from Docs
+ACTIVE_BASE_URL = "https://cdn-ind.testnet.deltaex.org"
 
 TRADE_VALUE_USD = 5.0  # $5 Capital
 SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
@@ -110,43 +105,23 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
     return {"success": False, "error": {"code": "NETWORK_ERR", "msg": str(e)}}
 
 
-def auto_detect_working_delta_url():
-  global ACTIVE_BASE_URL
-  log_msg("🔍 Authenticating with Delta Gateways via Static IP 31.59.20.176...")
-  for url in CANDIDATE_URLS:
-    try:
-      res = send_delta_request(url, "/v2/wallet/balances", method="GET")
-      log_msg(f"📡 Gateway Ping {url} -> {res}")
-      if res.get("success") is True:
-        ACTIVE_BASE_URL = url
-        log_msg(f"🎯 100% AUTHENTICATED WITH GATEWAY: {ACTIVE_BASE_URL}")
-        return ACTIVE_BASE_URL
-    except Exception as e:
-      log_msg(f"⚠️ Gateway {url} ping failed: {e}")
-
-  ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
-  log_msg(f"🚀 Locked Delta Active Target: {ACTIVE_BASE_URL}")
-  return ACTIVE_BASE_URL
-
-
 def fetch_delta_ada_product():
   global ACTIVE_PRODUCT_ID
+  log_msg("🔍 Fetching ADAUSD Product ID from Delta Demo Gateway...")
   try:
-    res = requests.get(
-        f"{ACTIVE_BASE_URL}/v2/products", proxies=PROXIES, timeout=10
-    ).json()
+    res = send_delta_request(ACTIVE_BASE_URL, "/v2/products", method="GET")
     if res.get("success"):
       for prod in res.get("result", []):
         sym = prod.get("symbol", "").upper()
         if sym in ["ADAUSD", "ADAUSDT", "ADA-PERP"]:
           ACTIVE_PRODUCT_ID = prod.get("id")
           log_msg(
-              f"✅ Found Delta Contract: {sym} (Product ID:"
+              f"🎯 Connected to Demo Contract: {sym} (Product ID:"
               f" {ACTIVE_PRODUCT_ID})"
           )
           return ACTIVE_PRODUCT_ID
   except Exception as e:
-    log_msg(f"❌ Product ID Fetch Warning: {e}")
+    log_msg(f"ℹ️ Defaulting Product ID: {e}")
 
   ACTIVE_PRODUCT_ID = 27
   return ACTIVE_PRODUCT_ID
@@ -177,7 +152,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
       f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID:"
       f" {ACTIVE_PRODUCT_ID}"
   )
-  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Gateway: {ACTIVE_BASE_URL}")
+  log_msg(f"🌐 Static Proxy: {PROXY_IP} | Demo Server: {ACTIVE_BASE_URL}")
   log_msg("🔥" * 32 + "\n")
 
   # 1. Entry Limit Order
@@ -223,7 +198,6 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
 
 def poll_binance_loop():
   global TEST_TRADE_EXECUTED, processed_trade_ids
-  auto_detect_working_delta_url()
   fetch_delta_ada_product()
   log_msg("✅ [CONNECTED] Binance Cloud Polling Stream is ACTIVE!")
 
