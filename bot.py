@@ -5,11 +5,9 @@ import http.server
 import json
 import os
 import socketserver
-import ssl
 import threading
 import time
 import requests
-import websocket
 
 # --- CONFIG & DELTA DEMO CREDENTIALS ---
 DELTA_API_KEY = "nCXz95sPzB7UrjgOBMnFk62JZmbOOJ"
@@ -21,13 +19,6 @@ DELTA_BASE_URL = "https://testnet-api.delta.exchange"
 TRADE_VALUE_USD = 5.0  # $5 USD Capital
 SL_POINTS = 0.00010  # Exact 10 Points SL (0.00010 USDT)
 
-# Global Cloud Stream Endpoints
-WS_ENDPOINTS = [
-    "wss://data-stream.binance.vision/ws/adausdt@aggTrade",
-    "wss://fstream.binance.com/ws/adausdt@aggTrade",
-    "wss://stream.binance.com:443/ws/adausdt@aggTrade",
-]
-
 IST_OFFSET = timedelta(hours=5, minutes=30)
 tz_ist = timezone(IST_OFFSET)
 
@@ -35,7 +26,7 @@ price_book = {}
 TEST_TRADE_EXECUTED = False
 lock = threading.Lock()
 ACTIVE_PRODUCT_ID = None
-LAST_HEARTBEAT = 0
+processed_trade_ids = set()
 
 
 def fetch_delta_ada_product():
@@ -148,98 +139,87 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     print(f"❌ Execution Exception: {e}")
 
 
-def on_open(ws):
-  print("✅ [CONNECTED] Binance WebSocket Stream is LIVE and Receiving Ticks!")
-
-
-def on_error(ws, error):
-  print(f"⚠️ WebSocket Warning: {error}")
-
-
-def on_close(ws, close_status_code, close_msg):
-  print(f"🔌 Stream Closed ({close_status_code}). Reconnecting cleanly...")
-
-
-def on_message(ws, message):
-  global TEST_TRADE_EXECUTED, LAST_HEARTBEAT
-  msg = json.loads(message)
-
-  p = float(msg["p"])
-  q = float(msg["q"])
-  t = int(msg["T"])
-  is_maker = bool(msg["m"])
-  p_str = f"{p:.5f}"
-
-  now = time.time()
-  if now - LAST_HEARTBEAT >= 4:
-    maker_type = (
-        "BUY (Whale Support)" if is_maker else "SELL (Whale Resistance)"
-    )
-    print(f"💓 [LIVE TICK] ADA: {p:.5f} USDT | Flow: {maker_type}")
-    LAST_HEARTBEAT = now
-
-  if TEST_TRADE_EXECUTED:
-    return
-
-  with lock:
-    if p_str not in price_book:
-      price_book[p_str] = {
-          "limit_buy_count": 0,
-          "limit_sell_count": 0,
-          "first_ts": t,
-      }
-
-    pb = price_book[p_str]
-    if is_maker:
-      pb["limit_buy_count"] += 1
-    else:
-      pb["limit_sell_count"] += 1
-
-    # Whale Limit BUY Trigger
-    if (
-        pb["limit_buy_count"] >= 1
-        and pb["limit_sell_count"] == 0
-        and not TEST_TRADE_EXECUTED
-    ):
-      threading.Thread(
-          target=execute_test_trade, args=("buy", p, pb["first_ts"])
-      ).start()
-
-    # Whale Limit SELL Trigger
-    elif (
-        pb["limit_sell_count"] >= 1
-        and pb["limit_buy_count"] == 0
-        and not TEST_TRADE_EXECUTED
-    ):
-      threading.Thread(
-          target=execute_test_trade, args=("sell", p, pb["first_ts"])
-      ).start()
-
-
-def start_ws():
+def poll_binance_loop():
+  global TEST_TRADE_EXECUTED, processed_trade_ids
   fetch_delta_ada_product()
-  endpoint_idx = 0
-  while True:
-    url = WS_ENDPOINTS[endpoint_idx % len(WS_ENDPOINTS)]
-    try:
-      print(f"🔌 Connecting to Stream Endpoint: {url}")
-      ws = websocket.WebSocketApp(
-          url,
-          on_open=on_open,
-          on_message=on_message,
-          on_error=on_error,
-          on_close=on_close,
-      )
-      ws.run_forever(
-          sslopt={"cert_reqs": ssl.CERT_NONE, "check_hostname": False},
-          ping_interval=20,
-          ping_timeout=10,
-      )
-    except Exception as e:
-      print(f"WebSocket Exception: {e}")
+  print("✅ [CONNECTED] Binance HTTP Polling Stream is ACTIVE!")
 
-    endpoint_idx += 1
-    time.sleep(3)
+  endpoints = [
+      "https://api.binance.com/api/v3/trades?symbol=ADAUSDT&limit=10",
+      "https://data-api.binance.vision/api/v3/trades?symbol=ADAUSDT&limit=10",
+  ]
+
+  while True:
+    if TEST_TRADE_EXECUTED:
+      time.sleep(10)
+      continue
+
+    success = False
+    for url in endpoints:
+      try:
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+          trades = resp.json()
+          success = True
+          for tr in trades:
+            trade_id = tr.get("id")
+            if trade_id in processed_trade_ids:
+              continue
+            processed_trade_ids.add(trade_id)
+            if len(processed_trade_ids) > 500:
+              processed_trade_ids.clear()
+
+            p = float(tr["price"])
+            q = float(tr["qty"])
+            t = int(tr["time"])
+            is_maker = bool(tr["isBuyerMaker"])
+            p_str = f"{p:.5f}"
+
+            print(
+                f"💓 [POLL TICK] ADA: {p:.5f} USDT | Maker:"
+                f" {'BUY' if is_maker else 'SELL'}"
+            )
+
+            if TEST_TRADE_EXECUTED:
+              break
+
+            with lock:
+              if p_str not in price_book:
+                price_book[p_str] = {
+                    "limit_buy_count": 0,
+                    "limit_sell_count": 0,
+                    "first_ts": t,
+                }
+
+              pb = price_book[p_str]
+              if is_maker:
+                pb["limit_buy_count"] += 1
+              else:
+                pb["limit_sell_count"] += 1
+
+              if (
+                  pb["limit_buy_count"] >= 1
+                  and pb["limit_sell_count"] == 0
+                  and not TEST_TRADE_EXECUTED
+              ):
+                threading.Thread(
+                    target=execute_test_trade, args=("buy", p, pb["first_ts"])
+                ).start()
+                break
+              elif (
+                  pb["limit_sell_count"] >= 1
+                  and pb["limit_buy_count"] == 0
+                  and not TEST_TRADE_EXECUTED
+              ):
+                threading.Thread(
+                    target=execute_test_trade, args=("sell", p, pb["first_ts"])
+                ).start()
+                break
+          break
+      except Exception as e:
+        continue
+
+    time.sleep(1)
 
 
 def keep_awake():
@@ -251,7 +231,7 @@ def keep_awake():
       pass
 
 
-threading.Thread(target=start_ws, daemon=True).start()
+threading.Thread(target=poll_binance_loop, daemon=True).start()
 threading.Thread(target=keep_awake, daemon=True).start()
 
 PORT = int(os.environ.get("PORT", 8080))
