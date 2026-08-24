@@ -28,13 +28,13 @@ def get_current_server_ip():
 DELTA_API_KEY = "zh0hmPiybdPVdJ8pnyUUEcuKYMkU43"
 DELTA_API_SECRET = "S7Dw0vSic4ILNnAryD2oVUW6iYGlkYmQ4u1r2peuBsiKe4RmNCG30BEbDOMq"
 
+# Official Valid Delta API Server Endpoints
 CANDIDATE_URLS = [
-    "https://demo-api.delta.exchange",
     "https://testnet-api.delta.exchange",
-    "https://api.delta.exchange",
-    "https://api.india.delta.exchange"
+    "https://api.india.delta.exchange",
+    "https://api.delta.exchange"
 ]
-ACTIVE_BASE_URL = "https://demo-api.delta.exchange"
+ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
 
 TRADE_VALUE_USD = 5.0      # $5 Capital
 SL_POINTS = 0.00010        # Exact 10 Points SL (0.00010 USDT)
@@ -74,21 +74,21 @@ def send_delta_request(base_url, endpoint, payload=None, method="POST"):
 
 def auto_detect_working_delta_url():
     global ACTIVE_BASE_URL
-    log_msg("🔍 Auto-detecting correct Delta Server for your API key...")
+    log_msg("🔍 Testing Official Delta Servers...")
     for url in CANDIDATE_URLS:
         try:
-            res = send_delta_request(url, "/v2/wallet/balances", method="GET").json()
-            if res.get("success"):
+            res = send_delta_request(url, "/v2/wallet/balances", method="GET")
+            if res.status_code == 200:
                 ACTIVE_BASE_URL = url
-                log_msg(f"🎯 100% CONNECTED & AUTHENTICATED: {ACTIVE_BASE_URL}")
+                log_msg(f"🎯 100% CONNECTED & AUTHENTICATED WITH: {ACTIVE_BASE_URL}")
                 return ACTIVE_BASE_URL
-            elif res.get("error", {}).get("code") != "invalid_api_key":
-                ACTIVE_BASE_URL = url
-                log_msg(f"✅ Selected Compatible Delta Endpoint: {ACTIVE_BASE_URL}")
-                return ACTIVE_BASE_URL
-        except Exception:
-            continue
-    log_msg(f"ℹ️ Defaulting to: {ACTIVE_BASE_URL}")
+            else:
+                log_msg(f"ℹ️ Pinged {url} -> Status: {res.status_code} | Res: {res.text[:80]}")
+        except Exception as e:
+            log_msg(f"⚠️ Failed to connect {url}: {e}")
+            
+    ACTIVE_BASE_URL = "https://testnet-api.delta.exchange"
+    log_msg(f"🚀 Using Target Server: {ACTIVE_BASE_URL}")
     return ACTIVE_BASE_URL
 
 def fetch_delta_ada_product():
@@ -125,7 +125,7 @@ def execute_test_trade(side, exact_price, trigger_ts_ms):
     log_msg(f"🚀 [ORDER TRIGGERED AT: {exec_time_str} IST]")
     log_msg(f"⚡ Side: {side.upper()} | Price: {exact_price:.5f} USDT | SL: {sl_price:.5f} USDT")
     log_msg(f"💰 Capital: ${TRADE_VALUE_USD} | Size: {contract_size} | Product ID: {ACTIVE_PRODUCT_ID}")
-    log_msg(f"🌐 Target Server: {ACTIVE_BASE_URL}")
+    log_msg(f"🌐 Server: {ACTIVE_BASE_URL}")
     log_msg("🔥"*32 + "\n")
 
     # 1. Entry Limit Order
